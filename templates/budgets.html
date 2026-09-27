@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Budgets — FinanceOS{% endblock %}
+{% block page_title %}Budgets{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+  <p style="color:var(--text3);font-size:0.88rem">Set monthly spending limits per category</p>
+  <button class="btn btn-primary" onclick="showAddBudget()">+ Set Budget</button>
+</div>
+
+<div id="budgets-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:1rem">
+  <div class="empty-state col-span-2"><div class="empty-icon">⟳</div><p>Loading budgets...</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadBudgets() {
+  const buds = await fetch('/api/budgets').then(r=>r.json());
+  const grid = document.getElementById('budgets-grid');
+  if (!buds.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:span 2"><div class="empty-icon">▣</div><p>No budgets set for this month. Add one to start tracking!</p></div>`;
+    return;
+  }
+  grid.innerHTML = buds.map(b => {
+    const pct = b.limit > 0 ? Math.min((b.spent/b.limit)*100, 100) : 0;
+    const over = b.spent > b.limit;
+    const warn = pct >= 80 && !over;
+    const rem = b.limit - b.spent;
+    return `
+    <div class="card" style="border-color:${over?'rgba(255,95,109,0.3)':warn?'rgba(255,169,64,0.3)':'var(--border)'}">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:1rem">
+        <div>
+          <div style="font-size:1.3rem">${catEmoji(b.category)}</div>
+          <div style="font-weight:600;font-size:0.95rem;margin-top:4px">${b.category}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-head);font-size:1.1rem;font-weight:700">₹${b.limit.toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
+          <div style="font-size:0.75rem;color:var(--text3)">monthly limit</div>
+        </div>
+      </div>
+      <div class="progress-bar" style="height:8px;margin-bottom:8px">
+        <div class="progress-fill ${over?'over':warn?'warn':''}" style="width:${pct}%;height:8px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.8rem">
+        <span style="color:var(--text2)">Spent: <strong style="color:${over?'var(--danger)':warn?'var(--warning)':'var(--text)'}">₹${b.spent.toLocaleString('en-IN',{maximumFractionDigits:0})}</strong></span>
+        <span style="color:${over?'var(--danger)':rem>=0?'var(--income-color)':'var(--text3)'}">
+          ${over ? `Over by ₹${Math.abs(rem).toLocaleString('en-IN',{maximumFractionDigits:0})}` : `₹${rem.toLocaleString('en-IN',{maximumFractionDigits:0})} left`}
+        </span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+        <span style="font-size:0.78rem;color:var(--text3)">${pct.toFixed(0)}% used</span>
+        <button class="btn btn-danger btn-sm" onclick="deleteBudget(${b.id})">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showAddBudget() {
+  openModal(`
+    <div class="modal-title">Set Monthly Budget</div>
+    <div class="form-group">
+      <label>Category</label>
+      <select id="bud-cat">
+        ${['Food & Dining','Transport','Shopping','Entertainment','Health','Education','Utilities','Housing','Travel','Insurance','Savings','Other'].map(c=>`<option>${c}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Monthly Limit (₹)</label>
+      <input type="number" id="bud-limit" placeholder="10000" min="0">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="submitBudget()">Set Budget</button>
+  `);
+}
+
+async function submitBudget() {
+  const body = { category: document.getElementById('bud-cat').value, limit: document.getElementById('bud-limit').value };
+  if (!body.limit) return showToast('Enter a limit','error');
+  const r = await api('/api/budgets','POST',body);
+  if (r.success) { closeModal(); showToast('Budget set!'); loadBudgets(); }
+}
+
+async function deleteBudget(id) {
+  if (!confirm('Remove this budget?')) return;
+  const r = await api(`/api/budgets/${id}`,'DELETE');
+  if (r.success) { showToast('Budget removed'); loadBudgets(); }
+}
+
+loadBudgets();
+</script>
+{% endblock %}

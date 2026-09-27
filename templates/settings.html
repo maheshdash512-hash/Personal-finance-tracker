@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Settings — FinanceOS{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div style="max-width:580px">
+  <div class="settings-section">
+    <div class="settings-title">Profile</div>
+    <div class="form-group"><label>Username</label><input type="text" value="{{ user.username }}" readonly style="opacity:0.6"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="email" value="{{ user.email }}"></div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-title">Financial Settings</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Monthly Income (₹)</label>
+        <input type="number" id="monthly_income" value="{{ user.monthly_income }}">
+      </div>
+      <div class="form-group">
+        <label>Currency</label>
+        <select id="currency">
+          <option value="INR" {% if user.currency=='INR' %}selected{% endif %}>₹ Indian Rupee (INR)</option>
+          <option value="USD" {% if user.currency=='USD' %}selected{% endif %}>$ US Dollar (USD)</option>
+          <option value="EUR" {% if user.currency=='EUR' %}selected{% endif %}>€ Euro (EUR)</option>
+          <option value="GBP" {% if user.currency=='GBP' %}selected{% endif %}>£ British Pound (GBP)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-title">Change Password</div>
+    <div class="form-group"><label>Current Password</label><input type="password" id="cur-pw" placeholder="••••••••"></div>
+    <div class="form-group"><label>New Password</label><input type="password" id="new-pw" placeholder="••••••••"></div>
+  </div>
+
+  <div style="display:flex;gap:1rem">
+    <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+    <a href="{{ url_for('api_export') }}" class="btn btn-outline">↓ Export All Transactions (CSV)</a>
+  </div>
+
+  <div class="settings-section" style="margin-top:2rem">
+    <div class="settings-title">Danger Zone</div>
+    <div style="background:var(--danger-soft);border:1px solid rgba(255,95,109,0.2);border-radius:var(--radius);padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-weight:600;font-size:0.9rem">Delete All Transactions</div>
+        <div style="font-size:0.8rem;color:var(--text3);margin-top:2px">This action cannot be undone</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="alert('This would delete all your transactions. Feature disabled in demo.')">Delete</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function saveSettings() {
+  const body = {
+    email: document.getElementById('email').value,
+    monthly_income: document.getElementById('monthly_income').value,
+    currency: document.getElementById('currency').value,
+    current_password: document.getElementById('cur-pw').value,
+    new_password: document.getElementById('new-pw').value
+  };
+  const r = await api('/api/settings','POST',body);
+  if (r.success) showToast('Settings saved!');
+  else showToast(r.error||'Error saving','error');
+}
+</script>
+{% endblock %}

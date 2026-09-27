@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Analytics — FinanceOS{% endblock %}
+{% block page_title %}Analytics{% endblock %}
+
+{% block content %}
+<!-- Insights Row -->
+<div class="insight-grid" id="insights-row">
+  <div class="insight-card"><div class="insight-label">This Month Spend</div><div class="insight-val" id="ins-spend">—</div><div class="insight-change" id="ins-change">Loading...</div></div>
+  <div class="insight-card"><div class="insight-label">Savings Rate</div><div class="insight-val" id="ins-savings">—</div><div class="insight-change" style="color:var(--text3)">Of monthly income</div></div>
+  <div class="insight-card"><div class="insight-label">Transactions</div><div class="insight-val" id="ins-txns">—</div><div class="insight-change" style="color:var(--text3)">This month</div></div>
+</div>
+
+<div class="grid-2" style="margin-bottom:1.25rem">
+  <!-- Monthly Income vs Expense -->
+  <div class="card col-span-2">
+    <div class="card-header">
+      <span class="card-title">Income vs Expenses — Last 6 Months</span>
+      <div style="display:flex;gap:12px;font-size:0.78rem">
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:3px;background:#00e5a0;display:inline-block;border-radius:2px"></span>Income</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:3px;background:#ff5f6d;display:inline-block;border-radius:2px"></span>Expenses</span>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:280px">
+      <canvas id="monthlyChart" role="img" aria-label="Monthly income vs expense comparison">Monthly income and expenses over 6 months</canvas>
+    </div>
+  </div>
+</div>
+
+<div class="grid-2" style="margin-bottom:1.25rem">
+  <!-- Expense by Category Doughnut -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Expenses by Category</span>
+      <span style="font-size:0.78rem;color:var(--text3)">This month</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="catChart" role="img" aria-label="Expense breakdown by category this month">Category-wise expense distribution</canvas>
+    </div>
+  </div>
+
+  <!-- Top Categories List -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Top Spending Categories</span>
+    </div>
+    <div id="top-cats-list"></div>
+  </div>
+</div>
+
+<!-- Daily Spending -->
+<div class="card" style="margin-bottom:1.25rem">
+  <div class="card-header">
+    <span class="card-title">Daily Spending — Last 30 Days</span>
+  </div>
+  <div class="chart-wrap" style="height:200px">
+    <canvas id="dailyChart" role="img" aria-label="Daily spending for the last 30 days">Daily expense chart</canvas>
+  </div>
+</div>
+
+<!-- Monthly Bar Chart -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Monthly Savings</span>
+    <span style="font-size:0.78rem;color:var(--text3)">Income minus expenses</span>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="savingsChart" role="img" aria-label="Monthly savings bar chart">Monthly savings</canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let monthlyChart, catChart, dailyChart, savingsChart;
+
+async function loadAnalytics() {
+  const [overview, insights] = await Promise.all([
+    fetch('/api/analytics/overview').then(r=>r.json()),
+    fetch('/api/analytics/insights').then(r=>r.json())
+  ]);
+
+  // Insights cards
+  document.getElementById('ins-spend').textContent = '₹' + (insights.this_month_expense||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+  document.getElementById('ins-savings').textContent = insights.savings_rate + '%';
+  document.getElementById('ins-txns').textContent = insights.transaction_count;
+  const chg = insights.expense_change_pct;
+  const chgEl = document.getElementById('ins-change');
+  chgEl.textContent = (chg > 0 ? '↑ ' : '↓ ') + Math.abs(chg) + '% vs last month';
+  chgEl.className = 'insight-change ' + (chg > 0 ? 'negative' : 'positive');
+
+  // Monthly line chart
+  const labels = overview.monthly.map(m=>m.month);
+  monthlyChart = new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Income', data: overview.monthly.map(m=>m.income), backgroundColor:'rgba(0,229,160,0.7)', borderRadius:6 },
+        { label:'Expense', data: overview.monthly.map(m=>m.expense), backgroundColor:'rgba(255,95,109,0.7)', borderRadius:6 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid:{display:false} },
+        y: { grid:{color:'rgba(255,255,255,0.04)'}, ticks:{callback:v=>'₹'+fmtShort(v)} }
+      }
+    }
+  });
+
+  // Category doughnut
+  const cats = overview.categories.slice(0,8);
+  if (cats.length) {
+    catChart = makeDoughnutChart('catChart', cats.map(c=>c.category), cats.map(c=>c.amount));
+  }
+
+  // Top categories list
+  const total = cats.reduce((s,c)=>s+c.amount, 0);
+  const colors = ['#00e5a0','#ff5f6d','#4d9fff','#ffa940','#a78bfa','#fb923c','#34d399','#f87171'];
+  document.getElementById('top-cats-list').innerHTML = cats.map((c,i)=>`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.85rem">
+      <span style="font-size:1.1rem">${catEmoji(c.category)}</span>
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:4px">
+          <span style="font-weight:500">${c.category}</span>
+          <span style="color:var(--text2)">₹${c.amount.toLocaleString('en-IN',{maximumFractionDigits:0})}</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${total>0?(c.amount/total*100).toFixed(1):0}%;background:${colors[i%colors.length]}"></div>
+        </div>
+      </div>
+      <span style="font-size:0.75rem;color:var(--text3);min-width:36px;text-align:right">${total>0?(c.amount/total*100).toFixed(0):0}%</span>
+    </div>
+  `).join('') || '<div class="empty-state"><p>No expenses this month</p></div>';
+
+  // Daily spending
+  const dailyLabels = overview.daily.map(d=>d.date.slice(5));
+  dailyChart = new Chart(document.getElementById('dailyChart'), {
+    type: 'line',
+    data: {
+      labels: dailyLabels,
+      datasets: [{
+        data: overview.daily.map(d=>d.amount),
+        borderColor:'#4d9fff', backgroundColor:'rgba(77,159,255,0.08)',
+        fill:true, tension:0.4, pointRadius:2, borderWidth:2
+      }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{grid:{display:false},ticks:{maxTicksLimit:10,maxRotation:0}},
+        y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{callback:v=>'₹'+fmtShort(v)}}
+      }
+    }
+  });
+
+  // Savings bar
+  const savings = overview.monthly.map(m=>m.income-m.expense);
+  savingsChart = new Chart(document.getElementById('savingsChart'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{
+        data:savings,
+        backgroundColor:savings.map(v=>v>=0?'rgba(0,229,160,0.7)':'rgba(255,95,109,0.7)'),
+        borderRadius:6
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{grid:{display:false}},
+        y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{callback:v=>'₹'+fmtShort(v)}}
+      }
+    }
+  });
+}
+
+loadAnalytics();
+</script>
+{% endblock %}

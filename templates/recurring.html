@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Recurring — FinanceOS{% endblock %}
+{% block page_title %}Recurring Transactions{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+  <p style="color:var(--text3);font-size:0.88rem">Automate your regular income and expenses</p>
+  <button class="btn btn-primary" onclick="showAddRecurring()">+ Add Recurring</button>
+</div>
+
+{% if recurring %}
+<div id="rec-list">
+{% for r in recurring %}
+<div class="rec-card" id="rec-{{ r.id }}">
+  <div class="rec-icon">{{ r.name[0] if r.name else '↻' }}</div>
+  <div class="rec-info">
+    <div class="rec-name">{{ r.name }}</div>
+    <div class="rec-meta">{{ r.category }} · {{ r.frequency|capitalize }} · Next: {{ r.next_date.strftime('%d %b %Y') }}</div>
+  </div>
+  <span class="badge badge-{{ r.type }}" style="margin-right:8px">{{ r.type }}</span>
+  <div class="rec-amount" style="color:{% if r.type=='income' %}var(--income-color){% else %}var(--expense-color){% endif %}">
+    {% if r.type=='income' %}+{% else %}−{% endif %}₹{{ '{:,.0f}'.format(r.amount) }}
+  </div>
+  <button class="toggle-btn {% if r.active %}active{% endif %}" id="tog-{{ r.id }}" onclick="toggleRec({{ r.id }}, this)"></button>
+  <button onclick="deleteRec({{ r.id }})" style="background:none;border:none;color:var(--text3);cursor:pointer;margin-left:8px;font-size:1rem">✕</button>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">↻</div>
+  <p>No recurring transactions. Add subscriptions, salary, EMIs etc.</p>
+</div>
+{% endif %}
+
+<!-- Summary -->
+{% if recurring %}
+<div class="grid-3" style="margin-top:1.5rem">
+  {% set monthly_out = namespace(v=0) %}
+  {% set monthly_in = namespace(v=0) %}
+  {% for r in recurring if r.active %}
+    {% if r.type == 'expense' %}{% set monthly_out.v = monthly_out.v + r.amount %}{% endif %}
+    {% if r.type == 'income' %}{% set monthly_in.v = monthly_in.v + r.amount %}{% endif %}
+  {% endfor %}
+  <div class="stat-card" style="--card-accent:var(--danger);--card-color:var(--danger)">
+    <div class="stat-label">Monthly Outflow</div>
+    <div class="stat-value">₹{{ '{:,.0f}'.format(monthly_out.v) }}</div>
+    <div class="stat-sub">Active recurring expenses</div>
+  </div>
+  <div class="stat-card" style="--card-accent:var(--income-color);--card-color:var(--income-color)">
+    <div class="stat-label">Monthly Inflow</div>
+    <div class="stat-value">₹{{ '{:,.0f}'.format(monthly_in.v) }}</div>
+    <div class="stat-sub">Active recurring income</div>
+  </div>
+  <div class="stat-card" style="--card-accent:var(--info)">
+    <div class="stat-label">Net Recurring</div>
+    <div class="stat-value" style="color:{% if monthly_in.v - monthly_out.v >= 0 %}var(--income-color){% else %}var(--danger){% endif %}">
+      ₹{{ '{:,.0f}'.format(monthly_in.v - monthly_out.v) }}
+    </div>
+    <div class="stat-sub">Inflow minus outflow</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showAddRecurring() {
+  openModal(`
+    <div class="modal-title">Add Recurring Transaction</div>
+    <div class="form-group"><label>Name</label><input type="text" id="rec-name" placeholder="Netflix, Salary, EMI..."></div>
+    <div class="tab-bar" style="margin-bottom:1rem">
+      <button class="tab-btn active" id="rtab-exp" onclick="setRecType('expense')">Expense</button>
+      <button class="tab-btn" id="rtab-inc" onclick="setRecType('income')">Income</button>
+    </div>
+    <input type="hidden" id="rec-type" value="expense">
+    <div class="form-row">
+      <div class="form-group"><label>Amount (₹)</label><input type="number" id="rec-amount" placeholder="0"></div>
+      <div class="form-group">
+        <label>Frequency</label>
+        <select id="rec-freq">
+          <option value="monthly">Monthly</option>
+          <option value="weekly">Weekly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="rec-cat">
+          ${['Food & Dining','Transport','Shopping','Entertainment','Health','Education','Utilities','Housing','Travel','Insurance','Salary','Freelance','Business','Other'].map(c=>`<option>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Next Date</label><input type="date" id="rec-next" value="${new Date().toISOString().split('T')[0]}"></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="submitRecurring()">Add Recurring</button>
+  `);
+}
+
+function setRecType(t) {
+  document.getElementById('rec-type').value = t;
+  document.getElementById('rtab-exp').className='tab-btn'+(t==='expense'?' active':'');
+  document.getElementById('rtab-inc').className='tab-btn'+(t==='income'?' active':'');
+}
+
+async function submitRecurring() {
+  const body = {
+    name: document.getElementById('rec-name').value,
+    type: document.getElementById('rec-type').value,
+    amount: document.getElementById('rec-amount').value,
+    frequency: document.getElementById('rec-freq').value,
+    category: document.getElementById('rec-cat').value,
+    next_date: document.getElementById('rec-next').value
+  };
+  if (!body.name || !body.amount) return showToast('Fill required fields','error');
+  const r = await api('/api/recurring','POST',body);
+  if (r.success) { closeModal(); showToast('Recurring added!'); setTimeout(()=>location.reload(),800); }
+}
+
+async function deleteRec(id) {
+  if (!confirm('Delete this recurring transaction?')) return;
+  const r = await api(`/api/recurring/${id}`,'DELETE');
+  if (r.success) { document.getElementById(`rec-${id}`)?.remove(); showToast('Deleted'); }
+}
+
+async function toggleRec(id, btn) {
+  const r = await api(`/api/recurring/${id}/toggle`,'POST');
+  if (r.success) {
+    btn.classList.toggle('active', r.active);
+    showToast(r.active ? 'Activated' : 'Paused');
+  }
+}
+</script>
+{% endblock %}

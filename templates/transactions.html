@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Transactions — FinanceOS{% endblock %}
+{% block page_title %}Transactions{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+  <div class="tab-bar" style="margin-bottom:0;width:260px">
+    <button class="tab-btn active" onclick="filterType('')" id="tab-all">All</button>
+    <button class="tab-btn" onclick="filterType('expense')" id="tab-exp">Expenses</button>
+    <button class="tab-btn" onclick="filterType('income')" id="tab-inc">Income</button>
+  </div>
+  <button class="btn btn-primary" onclick="showAddTxn()">+ Add Transaction</button>
+</div>
+
+<div class="filter-bar">
+  <input type="text" id="search" placeholder="Search description or category..." oninput="loadTxns()">
+  <select id="cat-filter" onchange="loadTxns()">
+    <option value="">All Categories</option>
+    {% for c in expense_cats %}<option>{{ c }}</option>{% endfor %}
+    {% for c in income_cats %}<option>{{ c }}</option>{% endfor %}
+  </select>
+  <input type="month" id="month-filter" value="{{ now_month }}" onchange="loadTxns()">
+  <button class="btn btn-outline btn-sm" onclick="clearFilters()">Clear</button>
+</div>
+
+<div class="card">
+  <div id="txn-summary" style="display:flex;gap:1.5rem;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--border)">
+    <span style="font-size:0.85rem;color:var(--text3)">Loading...</span>
+  </div>
+  <div id="txn-container">
+    <div class="empty-state"><div class="empty-icon">⟳</div><p>Loading transactions...</p></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentType = '';
+const now = new Date();
+document.getElementById('month-filter').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+function filterType(t) {
+  currentType = t;
+  ['all','exp','inc'].forEach(id => document.getElementById(`tab-${id}`)?.classList.remove('active'));
+  document.getElementById(t===''?'tab-all':t==='expense'?'tab-exp':'tab-inc')?.classList.add('active');
+  loadTxns();
+}
+
+async function loadTxns() {
+  const search = document.getElementById('search').value;
+  const cat = document.getElementById('cat-filter').value;
+  const month = document.getElementById('month-filter').value;
+  let url = '/api/transactions?';
+  if (currentType) url += `type=${currentType}&`;
+  if (cat) url += `category=${encodeURIComponent(cat)}&`;
+  if (search) url += `search=${encodeURIComponent(search)}&`;
+  if (month) {
+    const [y, m] = month.split('-');
+    url += `month=${m}&year=${y}`;
+  }
+  const txns = await fetch(url).then(r=>r.json());
+  const income = txns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expense = txns.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  document.getElementById('txn-summary').innerHTML = `
+    <span style="font-size:0.85rem"><span style="color:var(--text3)">Transactions:</span> <strong>${txns.length}</strong></span>
+    <span style="font-size:0.85rem"><span style="color:var(--text3)">Income:</span> <strong style="color:var(--income-color)">+₹${income.toLocaleString('en-IN',{maximumFractionDigits:0})}</strong></span>
+    <span style="font-size:0.85rem"><span style="color:var(--text3)">Expense:</span> <strong style="color:var(--expense-color)">-₹${expense.toLocaleString('en-IN',{maximumFractionDigits:0})}</strong></span>
+    <span style="font-size:0.85rem"><span style="color:var(--text3)">Net:</span> <strong style="color:${income-expense>=0?'var(--income-color)':'var(--expense-color)'}">₹${(income-expense).toLocaleString('en-IN',{maximumFractionDigits:0})}</strong></span>
+  `;
+  if (!txns.length) {
+    document.getElementById('txn-container').innerHTML = `<div class="empty-state"><div class="empty-icon">⇅</div><p>No transactions found</p></div>`;
+    return;
+  }
+  document.getElementById('txn-container').innerHTML = `<div class="txn-list">${txns.map(t=>txnRow(t)).join('')}</div>`;
+}
+
+function clearFilters() {
+  document.getElementById('search').value = '';
+  document.getElementById('cat-filter').value = '';
+  document.getElementById('month-filter').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  filterType('');
+}
+
+function showAddTxn() {
+  openModal(`
+    <div class="modal-title">Add Transaction</div>
+    <div class="tab-bar" style="margin-bottom:1rem">
+      <button class="tab-btn active" id="tab-expense" onclick="setTxnType('expense')">Expense</button>
+      <button class="tab-btn" id="tab-income" onclick="setTxnType('income')">Income</button>
+    </div>
+    <input type="hidden" id="txn-type" value="expense">
+    <div class="form-row">
+      <div class="form-group"><label>Amount (₹)</label><input type="number" id="txn-amount" placeholder="0" min="0"></div>
+      <div class="form-group"><label>Date</label><input type="date" id="txn-date" value="${new Date().toISOString().split('T')[0]}"></div>
+    </div>
+    <div class="form-group">
+      <label>Category</label>
+      <select id="txn-cat">
+        <optgroup label="Expense">
+          ${['Food & Dining','Transport','Shopping','Entertainment','Health','Education','Utilities','Housing','Travel','Insurance','Savings','Other'].map(c=>`<option>${c}</option>`).join('')}
+        </optgroup>
+        <optgroup label="Income">
+          ${['Salary','Freelance','Business','Investment','Gift','Rental','Other'].map(c=>`<option>${c}</option>`).join('')}
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group"><label>Description</label><input type="text" id="txn-desc" placeholder="Optional description"></div>
+    <div class="form-group"><label>Tags</label><input type="text" id="txn-tags" placeholder="e.g. work, food, monthly"></div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="submitTxn()">Add Transaction</button>
+  `);
+}
+
+function setTxnType(t) {
+  document.getElementById('txn-type').value = t;
+  document.getElementById('tab-expense').className='tab-btn'+(t==='expense'?' active':'');
+  document.getElementById('tab-income').className='tab-btn'+(t==='income'?' active':'');
+}
+
+async function submitTxn() {
+  const body = {
+    type: document.getElementById('txn-type').value,
+    amount: document.getElementById('txn-amount').value,
+    category: document.getElementById('txn-cat').value,
+    description: document.getElementById('txn-desc').value,
+    date: document.getElementById('txn-date').value,
+    tags: document.getElementById('txn-tags').value
+  };
+  if (!body.amount || !body.date) return showToast('Fill required fields','error');
+  const r = await api('/api/transactions','POST',body);
+  if (r.success) { closeModal(); showToast('Transaction added!'); loadTxns(); }
+  else showToast('Error','error');
+}
+
+loadTxns();
+</script>
+{% endblock %}
